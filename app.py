@@ -38,16 +38,13 @@ def draw_template_format(ws):
     """100% 还原工作簿2.xlsx的精确模板格式"""
     thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                          top=Side(style='thin'), bottom=Side(style='thin'))
+    bottom_line_border = Border(bottom=Side(style='thin')) 
     
-    bottom_line_border = Border(bottom=Side(style='thin')) # 仅下边框，用于签字栏
-    
-    # 1. 设置精确列宽
     widths = {'A': 4.5, 'B': 25, 'C': 12, 'D': 20, 'E': 6.5, 'F': 7, 
               'G': 8.5, 'H': 13, 'I': 13, 'J': 15, 'K': 13, 'L': 25}
     for col, w in widths.items():
         ws.column_dimensions[col].width = w
 
-    # 2. 设置精确行高
     ws.row_dimensions[1].height = 21
     ws.row_dimensions[2].height = 38.25
     ws.row_dimensions[3].height = 51
@@ -59,12 +56,10 @@ def draw_template_format(ws):
     ws.row_dimensions[27].height = 26.25
     ws.row_dimensions[28].height = 26.25
 
-    # 3. 合并单元格
     ws.merge_cells('A1:C2')
     ws.merge_cells('D1:J2')
     ws.merge_cells('K1:L2')
 
-    # 4. 写入头部信息
     ws['D1'] = 'ESM特气仓库空瓶入库检查表'
     ws['D1'].font = Font(name='微软雅黑', size=18, bold=True)
     ws['D1'].alignment = Alignment(horizontal='center', vertical='center')
@@ -73,7 +68,6 @@ def draw_template_format(ws):
     ws['K1'].font = Font(name='微软雅黑', size=10)
     ws['K1'].alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
-    # 5. 写入第三行表头
     headers = ['No', '客户名称', '气体名称', '钢瓶号', '容积', '库位', 
                '外观*', '瓶帽*', '阀门*', '标签*\n（尤其Barcode标签）', '文件核对*', '检查结论+备注']
     for i, h in enumerate(headers, 1):
@@ -82,7 +76,6 @@ def draw_template_format(ws):
         cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
         cell.border = thin_border
 
-    # 6. 数据区(4-23行)边框与居中预设
     for r in range(4, 24):
         for c in range(1, 13):
             cell = ws.cell(row=r, column=c)
@@ -90,22 +83,18 @@ def draw_template_format(ws):
             cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.font = Font(name='微软雅黑', size=9)
 
-    # 7. 写入底部签字栏及横线
     ws.merge_cells('A24:B24')
     ws['A24'] = '检查人'
     ws.merge_cells('C24:E24')
-    # 给 C24 到 E24 添加下划线
     for c in range(3, 6): ws.cell(row=24, column=c).border = bottom_line_border
     
     ws.merge_cells('F24:G24')
     ws['F24'] = '复核人'
     ws.merge_cells('H24:I24')
-    # 给 H24 到 I24 添加下划线
     for c in range(8, 10): ws.cell(row=24, column=c).border = bottom_line_border
         
     ws['J24'] = '检查日期'
     ws.merge_cells('K24:L24')
-    # 给 K24 到 L24 添加下划线
     for c in range(11, 13): ws.cell(row=24, column=c).border = bottom_line_border
     
     notes = [
@@ -123,7 +112,6 @@ def draw_template_format(ws):
         ws.cell(row=idx, column=7, value=n2)
         ws.cell(row=idx, column=8, value=t2)
 
-    # 底部格式微调
     for r in range(24, 29):
         for c in range(1, 13):
             cell = ws.cell(row=r, column=c)
@@ -135,7 +123,7 @@ def draw_template_format(ws):
 
 if st.button("🚀 开始提取并生成报表", type="primary"):
     if file_inventory and file_scan:
-        st.info("🔄 正在以【回空扫描数据】为主表提取数据，并动态生成报表模板...")
+        st.info("🔄 正在清洗数据，并以【回空扫描数据】为主表提取及生成报表...")
         
         try:
             # ================= 1. 读取数据 =================
@@ -145,6 +133,11 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
             df_stock.columns = [str(c).strip().upper() for c in df_stock.columns]
             df_scan.columns = [str(c).strip().upper() for c in df_scan.columns]
             
+            # 【关键修改】：在库存表中直接剔除 INVENTORY_ITEM_STATUS 为 "Not scanned but Expected" 的数据
+            if "INVENTORY_ITEM_STATUS" in df_stock.columns:
+                mask = df_stock["INVENTORY_ITEM_STATUS"].astype(str).str.strip() != "Not scanned but Expected"
+                df_stock = df_stock[mask].copy()
+
             scan_barcode_col = "BARCODE_NO" if "BARCODE_NO" in df_scan.columns else "ITEM_BARCODE"
             stock_barcode_col = "ITEM_BARCODE" if "ITEM_BARCODE" in df_stock.columns else "BARCODE_NO"
             
@@ -152,7 +145,7 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
                 st.error("❌ 在【回空扫描数据】中未找到条码列，无法处理！")
                 st.stop()
                 
-            # 库存表仅作为 DEFECT_DESCR 和 备注 的参考字典
+            # 库存表仅作为参考字典（此时已经是剔除掉异常预期数据后的干净版本）
             df_stock_unique = df_stock.drop_duplicates(subset=[stock_barcode_col]).copy()
             df_stock_unique[stock_barcode_col] = df_stock_unique[stock_barcode_col].astype(str).str.strip().str.upper()
             stock_dict = df_stock_unique.set_index(stock_barcode_col).to_dict('index')
@@ -164,18 +157,16 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
                 if vBN == "NAN" or not vBN:
                     continue
                 
-                # 【核心修复】：优先且强制保留扫描表中的 SERIAL_NO（钢瓶号）
                 vLoc = get_val(row, ["EXPECTED_LOCATION_NAME", "EXPECTED_LOCATION_NO"])
                 vProd = get_val(row, ["PROD_CODE", "PROD_NO"])
                 vProdDesc = get_val(row, ["PROD_DESCR"])
-                vSN = get_val(row, ["SERIAL_NO"])  # 从扫描数据提取钢瓶号
+                vSN = get_val(row, ["SERIAL_NO"])
                 vDef = get_val(row, ["DEFECT_DESCR"])
                 vRem = get_val(row, ["备注", "REMARK"])
 
-                # 如果扫描表缺失字段，才去当日库存参考字典获取
                 if vBN in stock_dict:
                     s_row = stock_dict[vBN]
-                    if not vSN: # 只有扫描表真的没有序列号，才用库存表的
+                    if not vSN:
                         vSN = str(s_row.get("SERIAL_NO", "")).strip()
                         if vSN.lower() == "nan": vSN = ""
                     if not vDef:
@@ -196,13 +187,11 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
                 })
                 
             df_kendan = pd.DataFrame(records)
-            
-            # 贸易涂黄
             trade_mask = df_kendan["PROD_CODE"].str.upper().isin(["EC1MQ1", "EJ1CO1"])
             df_kendan.loc[trade_mask, "备注"] = "贸易"
             df_kendan = df_kendan.sort_values(by=["PROD_CODE", "EXPECTED_LOCATION_NAME"], ascending=[True, True])
             
-            st.success(f"✅ 数据提取完毕，完全以回空扫描数据为主干，共提取 {len(df_kendan)} 条记录。")
+            st.success(f"✅ 数据提取完毕，已自动剔除无效库存数据，完全以回空扫描为主干，共提取 {len(df_kendan)} 条记录。")
 
             # ================= 3. 生成入库检查表的数据结构 =================
             check_data = []
@@ -214,7 +203,6 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
                 code = str(row["PROD_CODE"]).strip().upper()
                 sn = str(row["SERIAL_NO"]).strip()
                 
-                # FZX20T 拼接逻辑
                 if code == "FZX20T":
                     clean_sn = sn.replace(" ", "")
                     if len(check_data) > 0:
@@ -238,7 +226,7 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
                     check_data.append({
                         "客户名称": loc,
                         "气体名称": gas_name,
-                        "钢瓶号": sn, # 写入钢瓶号
+                        "钢瓶号": sn,
                         "容积": volume,
                         "库位": "",
                         "检查结论+备注": pending_fzx.strip()
@@ -261,12 +249,11 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
             for r_idx, row in enumerate(dataframe_to_rows(df_kendan, index=False, header=False), 2):
                 for c_idx, val in enumerate(row, 1):
                     cell = ws_kendan.cell(row=r_idx, column=c_idx, value=val)
-                    if c_idx in [4, 5]:  # 序列号和条码强转纯文本
+                    if c_idx in [4, 5]: 
                         cell.number_format = '@'
                     if c_idx == 7 and val == "贸易":
                         cell.fill = yellow_fill
 
-            # 按照20行一页进行切片
             chunks = [check_data[i:i + 20] for i in range(0, len(check_data), 20)]
             if not chunks: chunks = [[]]
             
@@ -274,30 +261,23 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
                 sheet_name = "ESM特气仓库空瓶入库检查表" if idx == 0 else f"ESM特气仓库空瓶入库检查表_{idx+1}"
                 ws_check = wb.create_sheet(sheet_name)
                 
-                # 绘制底表结构
                 draw_template_format(ws_check)
                 
-                # 填入核心数据 (映射至第 4 到 23 行)
                 for r_idx, item in enumerate(chunk, 4):
                     ws_check.cell(row=r_idx, column=1, value=r_idx - 3)
                     ws_check.cell(row=r_idx, column=2, value=item["客户名称"])
                     ws_check.cell(row=r_idx, column=3, value=item["气体名称"])
-                    
                     cell_sn = ws_check.cell(row=r_idx, column=4, value=item["钢瓶号"])
-                    cell_sn.number_format = '@' # 确保存储为文本，防止变成科学计数
-                    
+                    cell_sn.number_format = '@' 
                     ws_check.cell(row=r_idx, column=5, value=item["容积"])
                     ws_check.cell(row=r_idx, column=6, value=item["库位"])
-                    
                     cell_rem = ws_check.cell(row=r_idx, column=12, value=item["检查结论+备注"])
                     cell_rem.number_format = '@'
 
-            # 5. 保存并提供下载
             output = io.BytesIO()
             wb.save(output)
             output.seek(0)
             
-            st.success(f"✅ 生成成功！自动排版生成的入库检查表已分为 {len(chunks)} 页。")
             st.download_button(
                 label="📥 点击下载当日生成的 【回空啃单及检查表.xlsx】",
                 data=output,
