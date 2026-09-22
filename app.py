@@ -1,9 +1,11 @@
 import streamlit as st
 import pandas as pd
 import io
+import os
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.drawing.image import Image as OpenpyxlImage
 
 # ================= 页面基础配置 =================
 st.set_page_config(page_title="ESM特气处理系统", layout="wide")
@@ -15,9 +17,10 @@ try:
     from openpyxl import Workbook
 except ImportError as e:
     st.error(f"🚨 云端服务器环境尚未就绪，缺少核心组件：**{e.name}**")
-    st.info("请确保 GitHub 根目录下包含 `requirements.txt` 文件，并写入 streamlit, pandas, openpyxl, xlrd 四行。然后重启应用。")
+    st.info("请确保 GitHub 根目录下包含 `requirements.txt` 文件，并写入 streamlit, pandas, openpyxl, xlrd, Pillow 五行。然后重启应用。")
     st.stop()
 
+# 两个数据源上传入口
 col1, col2 = st.columns(2)
 with col1:
     file_scan = st.file_uploader("1. 上传【回空扫描数据】(主数据，如GTS表)", type=["xlsx", "xls", "xlsm"])
@@ -39,16 +42,25 @@ def load_correct_sheet(file_obj, keyword):
             return pd.read_excel(xls, sheet_name=sheet)
     return pd.read_excel(xls, sheet_name=0)
 
-def draw_template_format(ws):
-    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
-                         top=Side(style='thin'), bottom=Side(style='thin'))
-    bottom_line_border = Border(bottom=Side(style='thin')) 
+def draw_template_format(ws, logo_path=None):
+    """100% 还原并增强模板格式：全线条边框、LOGO插入、A4横向自适应打印"""
     
+    # 1. 边框样式定义
+    thin_border = Border(
+        left=Side(style='thin', color='000000'),
+        right=Side(style='thin', color='000000'),
+        top=Side(style='thin', color='000000'),
+        bottom=Side(style='thin', color='000000')
+    )
+    bottom_line_border = Border(bottom=Side(style='thin', color='000000')) 
+    
+    # 2. 设置列宽
     widths = {'A': 4.5, 'B': 25, 'C': 12, 'D': 20, 'E': 6.5, 'F': 7, 
               'G': 8.5, 'H': 13, 'I': 13, 'J': 15, 'K': 13, 'L': 25}
     for col, w in widths.items():
         ws.column_dimensions[col].width = w
 
+    # 3. 设置行高
     ws.row_dimensions[1].height = 21
     ws.row_dimensions[2].height = 38.25
     ws.row_dimensions[3].height = 51
@@ -60,10 +72,22 @@ def draw_template_format(ws):
     ws.row_dimensions[27].height = 26.25
     ws.row_dimensions[28].height = 26.25
 
+    # 4. 合并单元格
     ws.merge_cells('A1:C2')
     ws.merge_cells('D1:J2')
     ws.merge_cells('K1:L2')
 
+    # 5. 插入左上角 Logo 图片
+    if logo_path and os.path.exists(logo_path):
+        try:
+            img = OpenpyxlImage(logo_path)
+            img.width = 135
+            img.height = 42
+            ws.add_image(img, "A1")
+        except Exception as e:
+            pass
+
+    # 6. 写入标题与文件声明信息
     ws['D1'] = 'ESM特气仓库空瓶入库检查表'
     ws['D1'].font = Font(name='微软雅黑', size=18, bold=True)
     ws['D1'].alignment = Alignment(horizontal='center', vertical='center')
@@ -72,6 +96,7 @@ def draw_template_format(ws):
     ws['K1'].font = Font(name='微软雅黑', size=10)
     ws['K1'].alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
+    # 7. 写入表头及样式
     headers = ['No', '客户名称', '气体名称', '钢瓶号', '容积', '库位', 
                '外观*', '瓶帽*', '阀门*', '标签*\n（尤其Barcode标签）', '文件核对*', '检查结论+备注']
     for i, h in enumerate(headers, 1):
@@ -80,6 +105,7 @@ def draw_template_format(ws):
         cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
         cell.border = thin_border
 
+    # 8. 数据区(4-23行)全线框及格式预设
     for r in range(4, 24):
         for c in range(1, 13):
             cell = ws.cell(row=r, column=c)
@@ -87,6 +113,7 @@ def draw_template_format(ws):
             cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.font = Font(name='微软雅黑', size=9)
 
+    # 9. 底部签字栏与下划线
     ws.merge_cells('A24:B24')
     ws['A24'] = '检查人'
     ws.merge_cells('C24:E24')
@@ -104,7 +131,7 @@ def draw_template_format(ws):
     notes = [
         ('1.', '外观：瓶体清洁无锈迹，油漆完好无损坏，无凹痕、腐蚀等异常。瓶身喷漆字迹完好。保护套完好（钢瓶），容器附件完好（如Ton tank防撞栏）；', '5.', '文件核对：DO单，可能有客户返回空瓶记录表；'),
         ('2.', '瓶帽：瓶帽与瓶体匹配，内外部清洁无锈迹，油漆完好无损坏；', '6.', '如发现异常状况，在备注栏填写相关信息，并立即通报相关人员。'),
-        ('3.', '阀门：阀门无锈迹，阀门及底座周围无腐蚀、损坏等异常。阀门出口垂直（Ton tank）；', '7.', '如使用花篮，需检查绑带（5年有效期）、棘轮、花篮框架有无异常；'),
+        ('3.', '阀门：阀门无锈迹，阀门及底座周围无腐蚀、损坏等异常。阀门出口垂直（Ton tank）；', '7.', '如使用花篮，需检查绑带（5年有效期），棘轮、花篮框架有无异常；'),
         ('4.', '标签：包含产品合格证、气体性质标签、满瓶标签及barcode标签（三张标签确保内容一致性）。', '', '')
     ]
     
@@ -125,21 +152,31 @@ def draw_template_format(ws):
             else:
                 cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
+    # 10. A4 纸横向打印自适应配置
+    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
+    ws.page_margins.left = 0.4
+    ws.page_margins.right = 0.4
+    ws.page_margins.top = 0.5
+    ws.page_margins.bottom = 0.5
+
 if st.button("🚀 开始提取并生成报表", type="primary"):
     if file_inventory and file_scan:
         st.info("🔄 正在清洗数据，剔除无用记录，并提取生成报表...")
         
         try:
-            # ================= 1. 读取数据 =================
+            # 1. 读取数据
             df_stock = load_correct_sheet(file_inventory, "库存")
             df_scan = load_correct_sheet(file_scan, "扫描")
             
             df_stock.columns = [str(c).strip().upper() for c in df_stock.columns]
             df_scan.columns = [str(c).strip().upper() for c in df_scan.columns]
             
-            # 【终极核心修复：采用无视大小写、无视空格的模糊匹配剔除法】
+            # 模糊匹配剔除未扫描预期数据
             if "INVENTORY_ITEM_STATUS" in df_scan.columns:
-                # 只要内容里包含 "not scanned" 这个词（不管大小写），就认为是虚假数据，直接反向过滤（保留不包含的）
                 mask_scan = ~df_scan["INVENTORY_ITEM_STATUS"].astype(str).str.lower().str.contains("not scanned", na=False)
                 df_scan = df_scan[mask_scan].copy()
 
@@ -154,17 +191,15 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
                 st.error("❌ 在【回空扫描数据】中未找到条码列，无法处理！")
                 st.stop()
                 
-            # 清理无条码的空行
             df_scan = df_scan.dropna(subset=[scan_barcode_col])
             df_scan = df_scan[df_scan[scan_barcode_col].astype(str).str.strip() != ""]
             df_scan = df_scan[df_scan[scan_barcode_col].astype(str).str.lower() != "nan"]
                 
-            # 库存表仅作为参考字典
             df_stock_unique = df_stock.drop_duplicates(subset=[stock_barcode_col]).copy()
             df_stock_unique[stock_barcode_col] = df_stock_unique[stock_barcode_col].astype(str).str.strip().str.upper()
             stock_dict = df_stock_unique.set_index(stock_barcode_col).to_dict('index')
             
-            # ================= 2. 绝对以【扫描数据】为主干提取 =================
+            # 2. 绝对以【扫描数据】为主干提取
             records = []
             for _, row in df_scan.iterrows():
                 vBN = str(row.get(scan_barcode_col, "")).strip().upper()
@@ -203,9 +238,9 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
             df_kendan.loc[trade_mask, "备注"] = "贸易"
             df_kendan = df_kendan.sort_values(by=["PROD_CODE", "EXPECTED_LOCATION_NAME"], ascending=[True, True])
             
-            st.success(f"✅ 数据提取完毕，已精准剔除所有未扫描预期数据，成功提取 {len(df_kendan)} 条真实有效记录。")
+            st.success(f"✅ 数据提取完毕，完全以回空扫描为主干，成功提取 {len(df_kendan)} 条真实有效记录。")
 
-            # ================= 3. 生成入库检查表的数据结构 =================
+            # 3. 生成入库检查表数据结构
             check_data = []
             pending_fzx = ""
             
@@ -245,7 +280,7 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
                     })
                     pending_fzx = ""
 
-            # ================= 4. 构建 Excel 并自动化绘制模板 =================
+            # 4. 构建 Excel 并自动化绘制模板
             wb = Workbook()
             default_ws = wb.active
             default_ws.title = "回空啃单数据"
@@ -269,12 +304,17 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
             chunks = [check_data[i:i + 20] for i in range(0, len(check_data), 20)]
             if not chunks: chunks = [[]]
             
+            # 检测本地是否有 logo.png 图片
+            logo_path = "logo.png" if os.path.exists("logo.png") else None
+            
             for idx, chunk in enumerate(chunks):
                 sheet_name = "ESM特气仓库空瓶入库检查表" if idx == 0 else f"ESM特气仓库空瓶入库检查表_{idx+1}"
                 ws_check = wb.create_sheet(sheet_name)
                 
-                draw_template_format(ws_check)
+                # 绘制底表结构 (含 Logo 和 A4 打印设置)
+                draw_template_format(ws_check, logo_path=logo_path)
                 
+                # 填入数据
                 for r_idx, item in enumerate(chunk, 4):
                     ws_check.cell(row=r_idx, column=1, value=r_idx - 3)
                     ws_check.cell(row=r_idx, column=2, value=item["客户名称"])
