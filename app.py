@@ -18,15 +18,13 @@ except ImportError as e:
     st.info("请确保 GitHub 根目录下包含 `requirements.txt` 文件，并写入 streamlit, pandas, openpyxl, xlrd 四行。然后重启应用。")
     st.stop()
 
-# 只保留两个数据源上传入口
 col1, col2 = st.columns(2)
 with col1:
-    file_scan = st.file_uploader("1. 上传【回空扫描数据】(主数据)", type=["xlsx", "xls", "xlsm"])
+    file_scan = st.file_uploader("1. 上传【回空扫描数据】(主数据，如GTS表)", type=["xlsx", "xls", "xlsm"])
 with col2:
-    file_inventory = st.file_uploader("2. 上传【当日库存数据】(参考数据)", type=["xlsx", "xls", "xlsm"])
+    file_inventory = st.file_uploader("2. 上传【当日库存数据】(参考数据，如FIFO表)", type=["xlsx", "xls", "xlsm"])
 
 def get_val(row, cols):
-    """优先从提供的列名列表中获取数据"""
     for c in cols:
         if c in row.index:
             v = str(row[c]).strip()
@@ -35,7 +33,6 @@ def get_val(row, cols):
     return ""
 
 def load_correct_sheet(file_obj, keyword):
-    """智能寻找对应的工作表，防止读错 Tab"""
     xls = pd.ExcelFile(file_obj)
     for sheet in xls.sheet_names:
         if keyword in sheet:
@@ -43,7 +40,6 @@ def load_correct_sheet(file_obj, keyword):
     return pd.read_excel(xls, sheet_name=0)
 
 def draw_template_format(ws):
-    """100% 还原工作簿2.xlsx的精确模板格式"""
     thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                          top=Side(style='thin'), bottom=Side(style='thin'))
     bottom_line_border = Border(bottom=Side(style='thin')) 
@@ -141,13 +137,14 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
             df_stock.columns = [str(c).strip().upper() for c in df_stock.columns]
             df_scan.columns = [str(c).strip().upper() for c in df_scan.columns]
             
-            # 【最核心修复】：彻底在“扫描表”和“库存表”双端剔除虚假的 Expected 数据！
+            # 【终极核心修复：采用无视大小写、无视空格的模糊匹配剔除法】
             if "INVENTORY_ITEM_STATUS" in df_scan.columns:
-                mask_scan = df_scan["INVENTORY_ITEM_STATUS"].astype(str).str.strip() != "Not scanned but Expected"
+                # 只要内容里包含 "not scanned" 这个词（不管大小写），就认为是虚假数据，直接反向过滤（保留不包含的）
+                mask_scan = ~df_scan["INVENTORY_ITEM_STATUS"].astype(str).str.lower().str.contains("not scanned", na=False)
                 df_scan = df_scan[mask_scan].copy()
 
             if "INVENTORY_ITEM_STATUS" in df_stock.columns:
-                mask_stock = df_stock["INVENTORY_ITEM_STATUS"].astype(str).str.strip() != "Not scanned but Expected"
+                mask_stock = ~df_stock["INVENTORY_ITEM_STATUS"].astype(str).str.lower().str.contains("not scanned", na=False)
                 df_stock = df_stock[mask_stock].copy()
 
             scan_barcode_col = "BARCODE_NO" if "BARCODE_NO" in df_scan.columns else "ITEM_BARCODE"
@@ -206,7 +203,7 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
             df_kendan.loc[trade_mask, "备注"] = "贸易"
             df_kendan = df_kendan.sort_values(by=["PROD_CODE", "EXPECTED_LOCATION_NAME"], ascending=[True, True])
             
-            st.success(f"✅ 数据提取完毕，已精准过滤预期数据，成功提取 {len(df_kendan)} 条有效记录。")
+            st.success(f"✅ 数据提取完毕，已精准剔除所有未扫描预期数据，成功提取 {len(df_kendan)} 条真实有效记录。")
 
             # ================= 3. 生成入库检查表的数据结构 =================
             check_data = []
