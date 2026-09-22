@@ -35,12 +35,11 @@ def get_val(row, cols):
     return ""
 
 def load_correct_sheet(file_obj, keyword):
-    """智能寻找对应的工作表，防止读错 Tab 导致数据量爆炸"""
+    """智能寻找对应的工作表，防止读错 Tab"""
     xls = pd.ExcelFile(file_obj)
     for sheet in xls.sheet_names:
         if keyword in sheet:
             return pd.read_excel(xls, sheet_name=sheet)
-    # 如果没找到带关键字的，默认读第一个表
     return pd.read_excel(xls, sheet_name=0)
 
 def draw_template_format(ws):
@@ -132,20 +131,24 @@ def draw_template_format(ws):
 
 if st.button("🚀 开始提取并生成报表", type="primary"):
     if file_inventory and file_scan:
-        st.info("🔄 正在清洗数据，并以【回空扫描数据】为主表提取及生成报表...")
+        st.info("🔄 正在清洗数据，剔除无用记录，并提取生成报表...")
         
         try:
-            # ================= 1. 智能读取数据 =================
+            # ================= 1. 读取数据 =================
             df_stock = load_correct_sheet(file_inventory, "库存")
             df_scan = load_correct_sheet(file_scan, "扫描")
             
             df_stock.columns = [str(c).strip().upper() for c in df_stock.columns]
             df_scan.columns = [str(c).strip().upper() for c in df_scan.columns]
             
-            # 在库存表中剔除异常预期数据
+            # 【最核心修复】：彻底在“扫描表”和“库存表”双端剔除虚假的 Expected 数据！
+            if "INVENTORY_ITEM_STATUS" in df_scan.columns:
+                mask_scan = df_scan["INVENTORY_ITEM_STATUS"].astype(str).str.strip() != "Not scanned but Expected"
+                df_scan = df_scan[mask_scan].copy()
+
             if "INVENTORY_ITEM_STATUS" in df_stock.columns:
-                mask = df_stock["INVENTORY_ITEM_STATUS"].astype(str).str.strip() != "Not scanned but Expected"
-                df_stock = df_stock[mask].copy()
+                mask_stock = df_stock["INVENTORY_ITEM_STATUS"].astype(str).str.strip() != "Not scanned but Expected"
+                df_stock = df_stock[mask_stock].copy()
 
             scan_barcode_col = "BARCODE_NO" if "BARCODE_NO" in df_scan.columns else "ITEM_BARCODE"
             stock_barcode_col = "ITEM_BARCODE" if "ITEM_BARCODE" in df_stock.columns else "BARCODE_NO"
@@ -154,7 +157,7 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
                 st.error("❌ 在【回空扫描数据】中未找到条码列，无法处理！")
                 st.stop()
                 
-            # 【关键修改】：强制清理扫描表中的空行，防止读取到Excel尾部的空白格式行
+            # 清理无条码的空行
             df_scan = df_scan.dropna(subset=[scan_barcode_col])
             df_scan = df_scan[df_scan[scan_barcode_col].astype(str).str.strip() != ""]
             df_scan = df_scan[df_scan[scan_barcode_col].astype(str).str.lower() != "nan"]
@@ -203,7 +206,7 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
             df_kendan.loc[trade_mask, "备注"] = "贸易"
             df_kendan = df_kendan.sort_values(by=["PROD_CODE", "EXPECTED_LOCATION_NAME"], ascending=[True, True])
             
-            st.success(f"✅ 数据提取完毕，完全以回空扫描为主干，成功精准提取 {len(df_kendan)} 条有效记录。")
+            st.success(f"✅ 数据提取完毕，已精准过滤预期数据，成功提取 {len(df_kendan)} 条有效记录。")
 
             # ================= 3. 生成入库检查表的数据结构 =================
             check_data = []
