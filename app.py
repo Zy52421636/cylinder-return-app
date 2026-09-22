@@ -39,6 +39,8 @@ def draw_template_format(ws):
     thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                          top=Side(style='thin'), bottom=Side(style='thin'))
     
+    bottom_line_border = Border(bottom=Side(style='thin')) # 仅下边框，用于签字栏
+    
     # 1. 设置精确列宽
     widths = {'A': 4.5, 'B': 25, 'C': 12, 'D': 20, 'E': 6.5, 'F': 7, 
               'G': 8.5, 'H': 13, 'I': 13, 'J': 15, 'K': 13, 'L': 25}
@@ -88,14 +90,23 @@ def draw_template_format(ws):
             cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.font = Font(name='微软雅黑', size=9)
 
-    # 7. 写入底部检查规则声明
+    # 7. 写入底部签字栏及横线
     ws.merge_cells('A24:B24')
     ws['A24'] = '检查人'
     ws.merge_cells('C24:E24')
+    # 给 C24 到 E24 添加下划线
+    for c in range(3, 6): ws.cell(row=24, column=c).border = bottom_line_border
+    
     ws.merge_cells('F24:G24')
     ws['F24'] = '复核人'
-    ws.merge_cells('I24:J24')
-    ws['I24'] = '检查日期'
+    ws.merge_cells('H24:I24')
+    # 给 H24 到 I24 添加下划线
+    for c in range(8, 10): ws.cell(row=24, column=c).border = bottom_line_border
+        
+    ws['J24'] = '检查日期'
+    ws.merge_cells('K24:L24')
+    # 给 K24 到 L24 添加下划线
+    for c in range(11, 13): ws.cell(row=24, column=c).border = bottom_line_border
     
     notes = [
         ('1.', '外观：瓶体清洁无锈迹，油漆完好无损坏，无凹痕、腐蚀等异常。瓶身喷漆字迹完好。保护套完好（钢瓶），容器附件完好（如Ton tank防撞栏）；', '5.', '文件核对：DO单，可能有客户返回空瓶记录表；'),
@@ -117,7 +128,7 @@ def draw_template_format(ws):
         for c in range(1, 13):
             cell = ws.cell(row=r, column=c)
             cell.font = Font(name='微软雅黑', size=9)
-            if c in [1, 6, 7, 9]: 
+            if c in [1, 6, 7, 10]: 
                 cell.alignment = Alignment(horizontal='center', vertical='center')
             else:
                 cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
@@ -153,17 +164,20 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
                 if vBN == "NAN" or not vBN:
                     continue
                 
-                # 核心字段 100% 读取回空扫描数据
+                # 【核心修复】：优先且强制保留扫描表中的 SERIAL_NO（钢瓶号）
                 vLoc = get_val(row, ["EXPECTED_LOCATION_NAME", "EXPECTED_LOCATION_NO"])
                 vProd = get_val(row, ["PROD_CODE", "PROD_NO"])
                 vProdDesc = get_val(row, ["PROD_DESCR"])
-                vSN = get_val(row, ["SERIAL_NO"])
+                vSN = get_val(row, ["SERIAL_NO"])  # 从扫描数据提取钢瓶号
                 vDef = get_val(row, ["DEFECT_DESCR"])
                 vRem = get_val(row, ["备注", "REMARK"])
 
-                # 当扫描数据缺乏缺陷或备注时，才去当日库存参考字典获取
+                # 如果扫描表缺失字段，才去当日库存参考字典获取
                 if vBN in stock_dict:
                     s_row = stock_dict[vBN]
+                    if not vSN: # 只有扫描表真的没有序列号，才用库存表的
+                        vSN = str(s_row.get("SERIAL_NO", "")).strip()
+                        if vSN.lower() == "nan": vSN = ""
                     if not vDef:
                         vDef = str(s_row.get("DEFECT_DESCR", "")).strip()
                         if vDef.lower() == "nan": vDef = ""
@@ -224,7 +238,7 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
                     check_data.append({
                         "客户名称": loc,
                         "气体名称": gas_name,
-                        "钢瓶号": sn,
+                        "钢瓶号": sn, # 写入钢瓶号
                         "容积": volume,
                         "库位": "",
                         "检查结论+备注": pending_fzx.strip()
@@ -270,7 +284,7 @@ if st.button("🚀 开始提取并生成报表", type="primary"):
                     ws_check.cell(row=r_idx, column=3, value=item["气体名称"])
                     
                     cell_sn = ws_check.cell(row=r_idx, column=4, value=item["钢瓶号"])
-                    cell_sn.number_format = '@'
+                    cell_sn.number_format = '@' # 确保存储为文本，防止变成科学计数
                     
                     ws_check.cell(row=r_idx, column=5, value=item["容积"])
                     ws_check.cell(row=r_idx, column=6, value=item["库位"])
